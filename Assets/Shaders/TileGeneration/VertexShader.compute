@@ -1,0 +1,464 @@
+﻿#include "PerlinNoiseShader.compute"
+#include "VertexFunctions.compute"
+
+#pragma kernel CSMain
+
+struct Vertex
+{
+	uint tile;
+	uint tileX;
+	uint tileZ;
+	uint tileType;
+	uint tileType1;
+	uint tileType2;
+	uint x;
+	uint z;
+	uint elevation;
+	uint elevation1;
+	uint elevation2;
+	float3 position;
+	uint colorR;
+	uint colorG;
+	uint colorB;
+	uint steepness;
+	uint rivers;
+	float gridHeight;
+};
+
+uint pointsSize;
+uint elevationBorderSizePoints;
+uint r;
+float3 startPoint;
+float xDistance;
+float zDistance;
+float elevationHeight;
+uint perlinMax;
+uint tilesZ;
+float layersValueMultiplier;
+float layersDensityMultiplier;
+uint numberOfTileTypes;
+uint riverWidthPoints;
+float riverMaxDepth;
+float riverShapePower;
+float riverHeight;
+
+float cliffNoiseStartSize;
+float cliffNoiseDensity;
+uint cliffNoiseLayers;
+float cliffNoiseValuePercentOnMildEdge;
+float cliffNoiseMildingPower;
+
+float heightNoiseStartSize;
+float heightNoiseDensity;
+uint heightNoiseLayers;
+float heightReductionPower1;
+float heightReductionPower2;
+
+float riverNoiseStartSize;
+float riverNoiseDensity;
+uint riverNoiseLayers;
+
+float textureNoiseStartSize;
+float textureNoiseDensity;
+int textureNoiseLayers;
+
+float secondaryTextureNoiseMaxSize;
+float secondaryTextureNoiseStartSize;
+float secondaryTextureNoiseDensity;
+uint secondaryTextureNoiseLayers;
+float secondaryTextureNoiseSpreadPower;
+
+float mixingNoiseMaxSize;
+float mixingNoiseStartSize;
+float mixingNoiseDensity;
+uint mixingNoiseLayers;
+float mixingPower;
+float mixingNoiseRampingReduction;
+float coastRampingReduction;
+float riverRampingReductionHeigher;
+float riverRampingReductionLower;
+float riverRampingReductionEqual;
+float riverStrenghtMultiplierHeigher;
+float riverStrenghtMultiplierLower;
+float riverStrenghtMultiplierEqual;
+
+uint3 cliffPrimaryColorMin;
+uint3 cliffPrimaryColorMax;
+uint3 cliffSecondaryColor;
+uint cliffLayerPriority;
+
+uint3 coastPrimaryColorMin;
+uint3 coastPrimaryColorMax;
+uint3 coastSecondaryColor;
+uint coastLayerPriority;
+
+uint3 tileType0PrimaryColorMin;
+uint3 tileType0PrimaryColorMax;
+uint3 tileType0SecondaryColor;
+uint tileType0LayerPriority;
+uint tileType0RockRiver;
+
+uint3 tileType1PrimaryColorMin;
+uint3 tileType1PrimaryColorMax;
+uint3 tileType1SecondaryColor;
+uint tileType1LayerPriority;
+uint tileType1RockRiver;
+
+uint3 tileType2PrimaryColorMin;
+uint3 tileType2PrimaryColorMax;
+uint3 tileType2SecondaryColor;
+uint tileType2LayerPriority;
+uint tileType2RockRiver;
+
+uint3 tileType3PrimaryColorMin;
+uint3 tileType3PrimaryColorMax;
+uint3 tileType3SecondaryColor;
+uint tileType3LayerPriority;
+uint tileType3RockRiver;
+
+
+RWStructuredBuffer<Vertex> vertexBuffer;
+
+float3 CalculateCliffVectorOfOtherPoint(Vertex vertex, uint x, uint z)
+{
+	float3 cliffVector = float3(0, 0, 0);
+	uint vertexClosestEdgesValues[4];
+	CalculateDistancesToEdges(vertexClosestEdgesValues, x, z, pointsSize, r);
+	uint vertexSteepness = CalculateVertexSteepness(vertexClosestEdgesValues[2], vertexClosestEdgesValues[3], vertex.elevation, vertex.elevation1, vertex.elevation2, elevationBorderSizePoints);
+	if (vertexSteepness > 0)
+	{
+		float3 vertexPosition = CalculateBasePosition(x, z, startPoint, xDistance, zDistance);
+		float cliffNoise = LayeredNoise(x, z, vertex.tileX, vertex.tileZ, cliffNoiseLayers, cliffNoiseDensity, cliffNoiseStartSize, layersValueMultiplier, layersDensityMultiplier, perlinMax, r, tilesZ);
+		cliffVector = CalculateCliffVector(vertexPosition, cliffNoise, vertexSteepness, vertexClosestEdgesValues[2], vertexClosestEdgesValues[3], vertex.elevation, vertex.elevation1, vertex.elevation2, r, elevationBorderSizePoints, cliffNoiseMildingPower, cliffNoiseValuePercentOnMildEdge);
+	}
+	return cliffVector;
+}
+
+[numthreads(128,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+	Vertex vertex = vertexBuffer[id.x];
+	if (vertex.tile >= 0) {
+		uint x = vertex.x;
+		uint z = vertex.z;
+
+		// find 2 closest edges
+		uint closestEdgesValues[4];
+		CalculateDistancesToEdges(closestEdgesValues, x, z, pointsSize, r);
+		uint closestEdge = closestEdgesValues[0];
+		uint secondClosestEdge = closestEdgesValues[1];
+		uint minDistance = closestEdgesValues[2];
+		uint secondMinDistance = closestEdgesValues[3];
+
+		float3 vertexPosition = CalculateBasePosition(x, z, startPoint, xDistance, zDistance);
+
+		// calculate height based on the vertex elevation of the tile and 2 closest tiles
+		float height = CalculateHeight(minDistance, secondMinDistance, vertex.elevation, vertex.elevation1, vertex.elevation2, elevationHeight, elevationBorderSizePoints);
+
+		// calculate how much lower the vertex should be placed based on whether it belongs to a river and its position inside it
+		float riverHeightAdjustment = CalculateRiverHeightAdjustment(minDistance, secondMinDistance, vertex.elevation, vertex.elevation1, vertex.elevation2, vertex.rivers, riverWidthPoints, riverMaxDepth, riverShapePower, elevationBorderSizePoints);
+		float riverNoise = LayeredNoise(x, z, vertex.tileX, vertex.tileZ, riverNoiseLayers, riverNoiseDensity, riverNoiseStartSize, layersValueMultiplier, layersDensityMultiplier, perlinMax, r, tilesZ);
+
+		bool river1 = (vertex.rivers % 10) >= 1;
+		bool river2 = (vertex.rivers % 100) >= 10;
+		bool river3 = (vertex.rivers % 1000) >= 100;
+
+		if (riverHeightAdjustment > -0.0001) 
+		{
+			// calculate the value of height noise and its reduction based on 2 closest tiles and distance from the closest edge
+			float heightNoise = LayeredNoise(x, z, vertex.tileX, vertex.tileZ, heightNoiseLayers, heightNoiseDensity, heightNoiseStartSize, layersValueMultiplier, layersDensityMultiplier, perlinMax, r, tilesZ);
+			// height noise reduction based on the vertex position on the tile
+			float heightNoiseReduction1 = CalculateNoiseReduction1(minDistance, secondMinDistance, vertex.elevation, vertex.elevation1, vertex.elevation2, r, heightReductionPower1);
+			// height noise reduction caused by a nearby river
+			float heightNoiseReduction2 = 1;
+
+			if (river1) heightNoiseReduction2 = 0;
+			if (!river1 && (river2 || river3) && minDistance < r)  heightNoiseReduction2 = pow(abs((secondMinDistance - minDistance) / (((float)r - minDistance) / 2)), heightReductionPower2);
+
+			float riverNoiseReduction1 = CalculateNoiseReduction1(minDistance, secondMinDistance, vertex.elevation, vertex.elevation1, vertex.elevation2, r, heightReductionPower1, true);
+			float riverNoiseReduction2 = 0;
+			if (river1) riverNoiseReduction2 = 1;
+			if (!river1 && (river2 || river3) && minDistance < r) riverNoiseReduction2 = pow(abs(1 - (secondMinDistance - minDistance) / (((float)r - minDistance) / 2)), heightReductionPower2);
+
+			vertexPosition.y = height + heightNoise * heightNoiseReduction1 * heightNoiseReduction2 + riverNoise * riverNoiseReduction1 * riverNoiseReduction2;
+		}
+		else 
+		{ 
+			vertexPosition.y = height + riverHeightAdjustment + riverNoise;
+		}
+
+		// is that vertex a part of a river or the edge of a river
+		bool isRiver =
+			riverHeightAdjustment < -0.0001 ||
+			(river1 && vertex.elevation == vertex.elevation1 && minDistance == riverWidthPoints) ||
+			(river2 && vertex.elevation == vertex.elevation2 && secondMinDistance == riverWidthPoints && (river1 || river3)) ||
+			(river1 && vertex.elevation < vertex.elevation1 && (minDistance == 2 * riverWidthPoints || minDistance == 0)) ||
+			(river2 && vertex.elevation < vertex.elevation2 && (secondMinDistance == 2 * riverWidthPoints || secondMinDistance == 0) && (river1 || river3)) ||
+			(river1 && vertex.elevation > vertex.elevation1 && minDistance == 0) ||
+			(river2 && vertex.elevation > vertex.elevation2 && secondMinDistance == 0 && (river1 || river3));
+
+		// special cases for not being river
+		if (!river1 && river2 && vertex.elevation2 < vertex.elevation1) isRiver = false;
+		if (!river1 && river2 && vertex.elevation2 == vertex.elevation1 && vertex.elevation < vertex.elevation2 && secondMinDistance == 2 * riverWidthPoints) isRiver = false;
+
+		// if vertex is a river save that in rivers variable
+		if (isRiver) vertex.rivers += 1000;
+
+		// calculate vertical shift
+		uint vertexSteepness = CalculateVertexSteepness(minDistance, secondMinDistance, vertex.elevation, vertex.elevation1, vertex.elevation2, elevationBorderSizePoints);
+		vertex.steepness = vertexSteepness;
+
+		// if vertex is part of a cliff calculate and add a cliff vector
+		if (vertexSteepness > 0) 
+		{
+			float cliffNoise = LayeredNoise(x, z, vertex.tileX, vertex.tileZ, cliffNoiseLayers, cliffNoiseDensity, cliffNoiseStartSize, layersValueMultiplier, layersDensityMultiplier, perlinMax, r, tilesZ);
+			float3 cliffVector = CalculateCliffVector(float3(vertexPosition.x, 0, vertexPosition.z), cliffNoise, vertexSteepness, minDistance, secondMinDistance, vertex.elevation, vertex.elevation1, vertex.elevation2, r, elevationBorderSizePoints, cliffNoiseMildingPower, cliffNoiseValuePercentOnMildEdge);
+			vertexPosition += cliffVector;
+		}
+		// if vertex is not part of a cliff it may need to be adjusted to compensate for nearby vertices being a cliff. Points at the very edge of the hex don't need to be readjusted
+		else if (minDistance > 0) 
+		{
+			uint2 vertex1;
+			uint2 vertex2;
+			uint2 vertex3;
+			uint3 pointDistances;
+			// find all points of interest
+			FindClosestEdgePoints(vertex1, vertex2, vertex3, pointDistances, x, z, closestEdge, secondClosestEdge, minDistance, secondMinDistance, elevationBorderSizePoints, vertex.elevation, vertex.elevation1, vertex.elevation2, r);
+			
+			uint vertex1ClosestEdgesValues[4];
+			uint vertex2ClosestEdgesValues[4];
+			CalculateDistancesToEdges(vertex1ClosestEdgesValues, vertex1.x, vertex2.y, pointsSize, r);
+			CalculateDistancesToEdges(vertex2ClosestEdgesValues, vertex1.x, vertex2.y, pointsSize, r);
+
+			// calculate cliff vectors for first 2 points
+			float3 cliffVector1 = CalculateCliffVectorOfOtherPoint(vertex, vertex1.x, vertex1.y);
+			float3 cliffVector2 = CalculateCliffVectorOfOtherPoint(vertex, vertex2.x, vertex2.y);
+
+			// adjust vertex position to match the cliff of the selected points
+			if (minDistance == secondMinDistance)
+			{
+				float3 cliffVector3 = CalculateCliffVectorOfOtherPoint(vertex, vertex3.x, vertex3.y);
+				float3 distanceMultiplier1 = 1 - ((float)(pointDistances.x) / (r - minDistance + pointDistances.x));
+				float3 distanceMultiplier2 = 1 - ((float)(pointDistances.y) / (r - minDistance + pointDistances.y));
+				float3 distanceMultiplier3 = 1 - ((float)(pointDistances.z) / (r - minDistance + pointDistances.z));
+				if (pointDistances.x == minDistance)
+				{
+					vertexPosition += (cliffVector2 * distanceMultiplier2 + cliffVector3 * distanceMultiplier3) / 2;
+				}
+				else if (pointDistances.y == minDistance)
+				{
+					vertexPosition += (cliffVector1 * distanceMultiplier1 + cliffVector3 * distanceMultiplier3) / 2;
+				}
+				else if (pointDistances.z == minDistance)
+				{
+					vertexPosition += (cliffVector1 * distanceMultiplier1 + cliffVector2 * distanceMultiplier2) / 2;
+				}
+				else
+				{
+					vertexPosition += (cliffVector1 * distanceMultiplier1 + cliffVector2 * distanceMultiplier2 + cliffVector3 * distanceMultiplier3) / 3;
+				}
+			}
+			else
+			{
+				float3 distanceMultiplier1 = 1 - ((float)(pointDistances.x) / (r - minDistance + pointDistances.x));
+				float3 distanceMultiplier2 = 1 - ((float)(pointDistances.z) / (r - minDistance + pointDistances.z));
+				if (pointDistances.x == minDistance)
+				{
+					vertexPosition += cliffVector2 * distanceMultiplier2;
+				}
+				else if (pointDistances.z == minDistance)
+				{
+					vertexPosition += cliffVector1 * distanceMultiplier1;
+				}
+				else
+				{
+					vertexPosition += (cliffVector1 * distanceMultiplier1 + cliffVector2 * distanceMultiplier2) / 2;
+				}
+			}
+		}
+
+		vertex.position = vertexPosition;
+		vertex.gridHeight = vertexPosition.y;
+		if (riverHeightAdjustment < -0.0001) vertex.gridHeight = height + riverHeight;
+
+		// create color viariable tables, containing information for every tile type in order 
+		// the last 2 entries are for coasts and cliffs which are not actually tiletypes, but it is usefull to treat them as neighbouring tiles for color mixing
+		uint3 primaryColorMins[] = { tileType0PrimaryColorMin, tileType1PrimaryColorMin, tileType2PrimaryColorMin, tileType3PrimaryColorMin, coastPrimaryColorMin, cliffPrimaryColorMin };
+		uint3 primaryColorMaxs[] = { tileType0PrimaryColorMax, tileType1PrimaryColorMax, tileType2PrimaryColorMax, tileType3PrimaryColorMax, coastPrimaryColorMax, cliffPrimaryColorMax };
+		uint3 secondaryColors[] = { tileType0SecondaryColor, tileType1SecondaryColor, tileType2SecondaryColor, tileType3SecondaryColor, coastSecondaryColor, cliffSecondaryColor };
+		uint layerPriorities[] = { tileType0LayerPriority, tileType1LayerPriority, tileType2LayerPriority, tileType3LayerPriority, coastLayerPriority, cliffLayerPriority };
+		uint rockRivers[] = { tileType0RockRiver, tileType1RockRiver, tileType2RockRiver, tileType3RockRiver };
+
+		uint tileType = vertex.tileType;
+		uint tileType1 = vertex.tileType1;
+		uint tileType2 = vertex.tileType2;
+
+		// river is sandy as long as long as it doesn't lie between two tile that prefer rocky river
+		uint riverTypeNumber1 = numberOfTileTypes;
+		uint riverTypeNumber2 = numberOfTileTypes;
+		if ((rockRivers[tileType] != numberOfTileTypes || (vertex.elevation > vertex.elevation1 && vertex.elevation - vertex.elevation1 > 1)) && (rockRivers[tileType1] != numberOfTileTypes || (vertex.elevation1 > vertex.elevation && vertex.elevation1 - vertex.elevation > 1)))
+		{
+			if (rockRivers[tileType] != numberOfTileTypes) riverTypeNumber1 = rockRivers[tileType];
+			else riverTypeNumber1 = rockRivers[tileType1];
+		}
+		if ((rockRivers[tileType] != numberOfTileTypes || (vertex.elevation > vertex.elevation2 && vertex.elevation - vertex.elevation2 > 1)) && (rockRivers[tileType2] != numberOfTileTypes || (vertex.elevation2 > vertex.elevation && vertex.elevation2 - vertex.elevation > 1)))
+		{
+			if (rockRivers[tileType] != numberOfTileTypes) riverTypeNumber2 = rockRivers[tileType];
+			else riverTypeNumber2 = rockRivers[tileType2];
+		}
+
+		// allows to control texture influence if needed
+		float neighbour1StrenghtMultiplier = 1;
+		float neighbour2StrenghtMultiplier = 1;
+		float mixingNoiseRampingReduction1 = mixingNoiseRampingReduction;
+		float mixingNoiseRampingReduction2 = mixingNoiseRampingReduction;
+
+		// if vertex is a cliff it assumes the tile is of cliff type
+		if (vertexSteepness > 1) tileType = numberOfTileTypes + 1;
+		// if tile is near a cliff it assumes the nearby tile is of cliff type
+		if (vertex.elevation1 > vertex.elevation && vertex.elevation1 - vertex.elevation > 1) tileType1 = numberOfTileTypes + 1;
+		if (vertex.elevation2 > vertex.elevation && vertex.elevation2 - vertex.elevation > 1) tileType2 = numberOfTileTypes + 1;
+		// if tile is near a coast it assumes the nearby tile is of coast type
+		if (vertex.elevation1 == 0 && vertex.elevation == 1) 
+		{
+			tileType1 = numberOfTileTypes;
+			mixingNoiseRampingReduction1 = coastRampingReduction;
+		}
+		if (vertex.elevation2 == 0 && vertex.elevation == 1) 
+		{
+			tileType2 = numberOfTileTypes;
+			mixingNoiseRampingReduction2 = coastRampingReduction;
+		}
+
+		// if there are rivers nearby, the texture influenced by the river, not other tile and also with different properties
+		if (river1)
+		{
+			tileType1 = riverTypeNumber1;
+
+			if (vertex.elevation == vertex.elevation1)
+			{
+				neighbour1StrenghtMultiplier = riverStrenghtMultiplierEqual;
+				mixingNoiseRampingReduction1 = riverRampingReductionEqual;
+			}
+			else if (vertex.elevation < vertex.elevation1) 
+			{
+				neighbour1StrenghtMultiplier = riverStrenghtMultiplierLower;
+				mixingNoiseRampingReduction1 = riverRampingReductionLower;
+			}
+			else
+			{
+				neighbour1StrenghtMultiplier = riverStrenghtMultiplierHeigher;
+				mixingNoiseRampingReduction1 = riverRampingReductionHeigher;
+			}
+		}
+		if (river2)
+		{
+			tileType2 = riverTypeNumber2;
+			
+			if (vertex.elevation == vertex.elevation2)
+			{
+				neighbour2StrenghtMultiplier = riverStrenghtMultiplierEqual;
+				mixingNoiseRampingReduction2 = riverRampingReductionEqual;
+			}
+			else if (vertex.elevation < vertex.elevation2)
+			{
+				neighbour2StrenghtMultiplier = riverStrenghtMultiplierLower;
+				mixingNoiseRampingReduction2 = riverRampingReductionLower;
+			}
+			else
+			{
+				neighbour2StrenghtMultiplier = riverStrenghtMultiplierHeigher;
+				mixingNoiseRampingReduction2 = riverRampingReductionHeigher;
+			}
+		}
+		// if vertex is a river it assumes the tile is of coast type
+		if (isRiver)
+		{
+			tileType = riverTypeNumber1;
+			tileType1 = riverTypeNumber1;
+			tileType2 = riverTypeNumber1;
+		}
+
+		// texture noise is used to combine min and max colors to create an interesting texture base for a tile
+		float textureNoise = LayeredNoise(x, z, vertex.tileX, vertex.tileZ, textureNoiseLayers, textureNoiseDensity, textureNoiseStartSize, layersValueMultiplier, layersDensityMultiplier, perlinMax, r, tilesZ);
+
+		// secondary texture is a different color to create some big scale veriaty in texture
+		float secondaryTextureNoise = LayeredNoise(x, z, vertex.tileX, vertex.tileZ, secondaryTextureNoiseLayers, secondaryTextureNoiseDensity, secondaryTextureNoiseStartSize, layersValueMultiplier, layersDensityMultiplier, perlinMax, r, tilesZ);
+		if (secondaryTextureNoise < secondaryTextureNoiseMaxSize/2) secondaryTextureNoise = pow(abs(secondaryTextureNoise), secondaryTextureNoiseSpreadPower);
+		else secondaryTextureNoise = secondaryTextureNoise = secondaryTextureNoiseMaxSize - pow(abs(secondaryTextureNoise), secondaryTextureNoiseSpreadPower);
+
+		// mixing noise will allow tile textures to be mixed differently for each vertex
+		float mixingNoise = LayeredNoise(x, z, vertex.tileX, vertex.tileZ, mixingNoiseLayers, mixingNoiseDensity, mixingNoiseStartSize, layersValueMultiplier, layersDensityMultiplier, perlinMax, r, tilesZ);
+		float mixingNoise1 = mixingNoise + (mixingNoiseMaxSize - mixingNoise) * pow(abs(1 - ((float)minDistance / r)), mixingNoiseRampingReduction1);
+		float mixingNoise2 = mixingNoise + (mixingNoiseMaxSize - mixingNoise) * pow(abs(1 - ((float)secondMinDistance / r)), mixingNoiseRampingReduction2);
+
+		// how much neighbours will influence the tile texture
+		float neighbour1Strenght = neighbour1StrenghtMultiplier * (mixingNoise1 * 2 - (float) minDistance / r + 0.001);
+		float neighbour2Strenght = neighbour2StrenghtMultiplier * (mixingNoise2 * 2 - (float) secondMinDistance / r);
+
+		// mix factor determines the final influence of neigbors in color mixing
+		float mixingFactor1 = 0;
+		float mixingFactor2 = 0;
+
+		// if influenced by the closest tile
+		if (layerPriorities[tileType] < layerPriorities[tileType1] && neighbour1Strenght > 0 && !(vertex.elevation > vertex.elevation1 && vertex.elevation - vertex.elevation1 > 1))
+		{
+			mixingFactor1 = neighbour1Strenght / (mixingNoiseMaxSize * 2);
+			// special case if influenced by 2 different tile types
+			if (layerPriorities[tileType1] < layerPriorities[tileType2])
+			{
+				mixingFactor1 *= pow(abs((float)secondMinDistance / (r / 2)),2);
+			}
+		}
+		// if influenced by the second losest tile
+		if (layerPriorities[tileType] < layerPriorities[tileType2] && neighbour2Strenght > 0 && !(vertex.elevation > vertex.elevation2 && vertex.elevation - vertex.elevation2 > 1))
+		{
+			mixingFactor2 = neighbour2Strenght / (mixingNoiseMaxSize * 2);
+			// special case if influencing another tile and being influeced at the same time
+			if (layerPriorities[tileType] > layerPriorities[tileType1])
+			{
+				mixingFactor2 *= (float) (1.5*r - 2 * secondMinDistance + minDistance) / (1.5*r);
+			}
+			// special case if influenced by 2 different tile types
+			if (layerPriorities[tileType2] < layerPriorities[tileType1])
+			{
+				mixingFactor2 = 0;
+			}
+		}
+
+		mixingFactor1 = 1 - pow(abs(1 - mixingFactor1), mixingPower);
+		mixingFactor2 = 1 - pow(abs(1 - mixingFactor2), mixingPower);
+
+		if (mixingFactor1 + mixingFactor2 > 1)
+		{
+			float mixNormalizer = mixingFactor1 + mixingFactor2;
+			mixingFactor1 = mixingFactor1 / mixNormalizer;
+			mixingFactor2 = mixingFactor2 / mixNormalizer;
+		}
+
+		// calclate own color and that of the neigbours
+		uint3 ownColor = uint3(
+			(primaryColorMins[tileType].x * textureNoise + primaryColorMaxs[tileType].x * (1 - textureNoise)) * (1 - secondaryTextureNoise) + secondaryColors[tileType].x * secondaryTextureNoise,
+			(primaryColorMins[tileType].y * textureNoise + primaryColorMaxs[tileType].y * (1 - textureNoise)) * (1 - secondaryTextureNoise) + secondaryColors[tileType].y * secondaryTextureNoise,
+			(primaryColorMins[tileType].z * textureNoise + primaryColorMaxs[tileType].z * (1 - textureNoise)) * (1 - secondaryTextureNoise) + secondaryColors[tileType].z * secondaryTextureNoise
+		);
+
+		uint3 mixColor1 = uint3(
+			(primaryColorMins[tileType1].x * textureNoise + primaryColorMaxs[tileType1].x * (1 - textureNoise)) * (1 - secondaryTextureNoise) + secondaryColors[tileType1].x * secondaryTextureNoise,
+			(primaryColorMins[tileType1].y * textureNoise + primaryColorMaxs[tileType1].y * (1 - textureNoise)) * (1 - secondaryTextureNoise) + secondaryColors[tileType1].y * secondaryTextureNoise,
+			(primaryColorMins[tileType1].z * textureNoise + primaryColorMaxs[tileType1].z * (1 - textureNoise)) * (1 - secondaryTextureNoise) + secondaryColors[tileType1].z * secondaryTextureNoise
+		);
+
+		uint3 mixColor2 = uint3(
+			(primaryColorMins[tileType2].x * textureNoise + primaryColorMaxs[tileType2].x * (1 - textureNoise)) * (1 - secondaryTextureNoise) + secondaryColors[tileType2].x * secondaryTextureNoise,
+			(primaryColorMins[tileType2].y * textureNoise + primaryColorMaxs[tileType2].y * (1 - textureNoise)) * (1 - secondaryTextureNoise) + secondaryColors[tileType2].y * secondaryTextureNoise,
+			(primaryColorMins[tileType2].z * textureNoise + primaryColorMaxs[tileType2].z * (1 - textureNoise)) * (1 - secondaryTextureNoise) + secondaryColors[tileType2].z * secondaryTextureNoise
+		);
+
+		// mix color using previously calculated factors
+		vertex.colorR = ownColor.x * (1 - mixingFactor1 - mixingFactor2) + mixColor1.x * mixingFactor1 + mixColor2.x * mixingFactor2;
+		vertex.colorG = ownColor.y * (1 - mixingFactor1 - mixingFactor2) + mixColor1.y * mixingFactor1 + mixColor2.y * mixingFactor2;
+		vertex.colorB = ownColor.z * (1 - mixingFactor1 - mixingFactor2) + mixColor1.z * mixingFactor1 + mixColor2.z * mixingFactor2;	
+	}
+	vertexBuffer[id.x] = vertex;
+}

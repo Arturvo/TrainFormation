@@ -1,0 +1,32 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Assembly-CSharp", "Assembly-CSharp.csproj", "{FF09926E-5A8C-90F5-97CB-3E1E1B10A8DE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "com.rlabrecque.steamworks.net", "com.rlabrecque.steamworks.net.csproj", "{AAB38D9B-9CFA-F6A0-9007-B320201AE428}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "com.rlabrecque.steamworks.net.editor", "com.rlabrecque.steamworks.net.editor.csproj", "{5B50F57F-0273-C0D0-C0F2-ADF2F8D8BDFD}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FF09926E-5A8C-90F5-97CB-3E1E1B10A8DE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FF09926E-5A8C-90F5-97CB-3E1E1B10A8DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FF09926E-5A8C-90F5-97CB-3E1E1B10A8DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FF09926E-5A8C-90F5-97CB-3E1E1B10A8DE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AAB38D9B-9CFA-F6A0-9007-B320201AE428}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AAB38D9B-9CFA-F6A0-9007-B320201AE428}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AAB38D9B-9CFA-F6A0-9007-B320201AE428}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AAB38D9B-9CFA-F6A0-9007-B320201AE428}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5B50F57F-0273-C0D0-C0F2-ADF2F8D8BDFD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5B50F57F-0273-C0D0-C0F2-ADF2F8D8BDFD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5B50F57F-0273-C0D0-C0F2-ADF2F8D8BDFD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5B50F57F-0273-C0D0-C0F2-ADF2F8D8BDFD}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
