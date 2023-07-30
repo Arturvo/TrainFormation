@@ -1,0 +1,119 @@
+﻿float wglnoise_mod(float x, float y)
+{
+	return x - y * floor(x / y);
+}
+
+float2 wglnoise_mod(float2 x, float2 y)
+{
+	return x - y * floor(x / y);
+}
+
+float3 wglnoise_mod(float3 x, float3 y)
+{
+	return x - y * floor(x / y);
+}
+
+float4 wglnoise_mod(float4 x, float4 y)
+{
+	return x - y * floor(x / y);
+}
+
+float2 wglnoise_fade(float2 t)
+{
+	return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+float3 wglnoise_fade(float3 t)
+{
+	return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+float wglnoise_mod289(float x)
+{
+	return x - floor(x / 289) * 289;
+}
+
+float2 wglnoise_mod289(float2 x)
+{
+	return x - floor(x / 289) * 289;
+}
+
+float3 wglnoise_mod289(float3 x)
+{
+	return x - floor(x / 289) * 289;
+}
+
+float4 wglnoise_mod289(float4 x)
+{
+	return x - floor(x / 289) * 289;
+}
+
+float3 wglnoise_permute(float3 x)
+{
+	return wglnoise_mod289((x * 34 + 1) * x);
+}
+
+float4 wglnoise_permute(float4 x)
+{
+	return wglnoise_mod289((x * 34 + 1) * x);
+}
+
+float ClassicNoise_impl(float2 pi0, float2 pf0, float2 pi1, float2 pf1)
+{
+	pi0 = wglnoise_mod289(pi0); // To avoid truncation effects in permutation
+	pi1 = wglnoise_mod289(pi1);
+
+	float4 ix = float2(pi0.x, pi1.x).xyxy;
+	float4 iy = float2(pi0.y, pi1.y).xxyy;
+	float4 fx = float2(pf0.x, pf1.x).xyxy;
+	float4 fy = float2(pf0.y, pf1.y).xxyy;
+
+	float4 i = wglnoise_permute(wglnoise_permute(ix) + iy);
+
+	float4 phi = i / 41 * 3.14159265359 * 2;
+	float2 g00 = float2(cos(phi.x), sin(phi.x));
+	float2 g10 = float2(cos(phi.y), sin(phi.y));
+	float2 g01 = float2(cos(phi.z), sin(phi.z));
+	float2 g11 = float2(cos(phi.w), sin(phi.w));
+
+	float n00 = dot(g00, float2(fx.x, fy.x));
+	float n10 = dot(g10, float2(fx.y, fy.y));
+	float n01 = dot(g01, float2(fx.z, fy.z));
+	float n11 = dot(g11, float2(fx.w, fy.w));
+
+	float2 fade_xy = wglnoise_fade(pf0);
+	float2 n_x = lerp(float2(n00, n01), float2(n10, n11), fade_xy.x);
+	float n_xy = lerp(n_x.x, n_x.y, fade_xy.y);
+	return 1.44 * n_xy;
+}
+
+// Classic Perlin noise
+float ClassicNoise(float2 p)
+{
+	float2 i = floor(p);
+	float2 f = frac(p);
+	return (1 + ClassicNoise_impl(i, f, i + 1, f - 1))/2;
+}
+
+float LayeredNoise(uint x, uint z, uint tileX, uint tileZ, uint layers, float density, float startSize, float valueMultiplier, float densityMultiplier, uint perlinMax, uint r, uint tilesZ)
+{
+	// adjust perlin noise coordinates to be between 0 and 1 while also fixing the paralax effect by using the bigger of two sizes
+	float perlinX = (float)(x + (tileX + tilesZ - tileZ - 1) * r) / perlinMax;
+	float perlinZ = (float)(z + (tileZ * 2 + tileX) * r) / perlinMax;
+
+	float perlinValue = 0;
+	float currentMultiplier = 1;
+	float currentDensity = density;
+	for (uint i = 0; i < layers; i++)
+	{
+		// adjust perlin noise density
+		float perlinXtmp = perlinX * currentDensity;
+		float perlinZtmp = perlinZ * currentDensity;
+
+		perlinValue += ClassicNoise(float2(perlinXtmp, perlinZtmp)) * (startSize / currentMultiplier);
+
+		currentMultiplier *= valueMultiplier;
+		currentDensity *= densityMultiplier;
+	}
+	return perlinValue;
+}

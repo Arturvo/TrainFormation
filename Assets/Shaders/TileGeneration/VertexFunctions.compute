@@ -1,0 +1,447 @@
+﻿void CalculateDistancesToEdges(out uint resultOut[4], uint x, uint z, uint pointsSize, uint r)
+{
+	uint result[4];
+	// calculate distances from the edges
+	uint distances[6] =
+	{
+		pointsSize - 1 - z,
+		3 * r - z - x,
+		pointsSize - 1 - x,
+		z,
+		z + x - r,
+		x
+	};
+
+	// find distances to 2 closest edges
+	uint closestEdge = 0;
+	uint secondClosestEdge = 1;
+
+	for (uint i = 0; i < 6; i++)
+	{
+		if (distances[closestEdge] > distances[i])
+		{
+			secondClosestEdge = closestEdge;
+			closestEdge = i;
+		}
+		else if (distances[secondClosestEdge] > distances[i] && i != closestEdge)
+		{
+			secondClosestEdge = i;
+		}
+	}
+	uint minDistance = distances[closestEdge];
+	uint secondMinDistance = distances[secondClosestEdge];
+
+	result[0] = closestEdge;
+	result[1] = secondClosestEdge;
+	result[2] = minDistance;
+	result[3] = secondMinDistance;
+	resultOut = result;
+}
+
+float CalculateHeight(uint minDistance, uint secondMinDistance, uint elevation, uint elevation1, uint elevation2, float elevationHeight, uint elevationBorderSizePoints)
+{
+	float maxHeight = elevation * elevationHeight;
+	float minHeight = 0;
+
+	// if there is no closest neighbor or it is elevation 0, the default parameters are good to go
+	if (elevation1 > 0)
+	{
+		// if closest and the second closest neighbors are same or higher elevation
+		if (elevation1 >= elevation && elevation2 >= elevation)
+		{
+			minHeight = maxHeight;
+		}
+		// if closest neighbor is the same or higher elevation and second closest in lower
+		else if (elevation1 >= elevation && elevation2 > 0)
+		{
+			minDistance = secondMinDistance;
+			minHeight = elevation2 * elevationHeight;
+		}
+		// if closest neighbor is the same or higher elevation and second closest doesn't exist
+		else if (elevation1 >= elevation)
+		{
+			minDistance = secondMinDistance;
+		}
+		// if closest neigbor is lower elevation and second closest neighbors exists and is above 0 elevation
+		else if (elevation2 > 0)
+		{
+			// if closest neigbor has lower elevation and second closest neighbor has even lower elevation, but not 0
+			if (elevation2 < elevation1)
+			{
+				if (secondMinDistance < elevationBorderSizePoints)
+				{
+					float tmpMinHeight = elevation2 * elevationHeight;
+					float tmpMaxHeight = elevation1 * elevationHeight;
+					minHeight = tmpMinHeight + ((float)secondMinDistance / elevationBorderSizePoints) * (tmpMaxHeight - tmpMinHeight);
+				}
+				else
+				{
+					minHeight = elevation1 * elevationHeight;
+				}
+			}
+			// if closest neigbor has lower elevation and second closest has same or heigher elevation
+			else
+			{
+				minHeight = elevation1 * elevationHeight;
+			}
+		}
+		// if closest neigbor has lower elevation and second closest neighbor has 0 elevation or doesn't exist
+		else
+		{
+			if (secondMinDistance < elevationBorderSizePoints)
+			{
+				minHeight = ((float)secondMinDistance / elevationBorderSizePoints) * elevation1 * elevationHeight;
+			}
+			else
+			{
+				minHeight = elevation1 * elevationHeight;
+			}
+		}
+	}
+
+	if (minDistance < elevationBorderSizePoints)
+	{
+		return minHeight + ((float)minDistance / elevationBorderSizePoints) * (maxHeight - minHeight);
+	}
+	else return maxHeight;
+}
+
+float CalculateRiverHeightAdjustment(uint minDistance, uint secondMinDistance, uint elevation, uint elevation1, uint elevation2, uint rivers, uint riverWidthPoints, float riverMaxDepth, float riverShapePower, uint elevationBorderSizePoints)
+{
+	// is there a river between this tile and the closest one (river1) and second closest one (river2)
+	// rivers = 0 + 1 (if closest river) + 10 (if second closest river)
+	bool river1 = (rivers % 10) >= 1;
+	bool river2 = (rivers % 100) >= 10;
+	bool river3 = (rivers % 1000) >= 100;
+
+	// int version of riverWidthPoints to avoid signed/unsigned mismatch warnings
+	int signedRiverWidthPoints = riverWidthPoints;
+	int signedDistanceFromDiagonal = secondMinDistance - minDistance;
+
+	// river ends and starts
+	if (river1 && !river2 && !river3 && secondMinDistance == 0 && minDistance == 0) return 0;
+	if (!river1 && river2 && !river3 && secondMinDistance == 0 && minDistance == 0) return 0;
+
+	if (river1 && !river2 && !river3 && elevation > elevation2 && elevation2 > 0 && secondMinDistance <= elevationBorderSizePoints) return 0;
+
+	if (river2 && elevation1 == 0 && elevation < elevation2 && secondMinDistance < 2 * riverWidthPoints)
+	{
+		if (secondMinDistance == 0) return 0;
+		int signedDistance = riverWidthPoints - secondMinDistance;
+		return pow(abs(1 - (float)abs(signedDistance) / riverWidthPoints), riverShapePower) * -riverMaxDepth;
+	}
+	if (river2 && elevation1 == 0 && elevation == elevation2 && secondMinDistance < riverWidthPoints)
+	{
+		if (secondMinDistance == 0) return 0;
+		return pow((float)(riverWidthPoints - secondMinDistance) / riverWidthPoints, riverShapePower) * -riverMaxDepth;
+	}
+
+	// if on the crossing of 3 rivers and this tile is the lowest, and closest is lower than second closest 
+	if (river1 && river2 && river3 && elevation < elevation1 && elevation1 < elevation2 && secondMinDistance < riverWidthPoints)
+	{
+		return pow(abs(1 - (float)(riverWidthPoints - secondMinDistance) / riverWidthPoints), riverShapePower) * -riverMaxDepth;
+	}
+	if (river1 && river2 && river3 && elevation < elevation1 && elevation1 < elevation2 && secondMinDistance >= riverWidthPoints && minDistance < riverWidthPoints && signedDistanceFromDiagonal < signedRiverWidthPoints)
+	{
+		return -riverMaxDepth;
+	}
+	if (river1 && river2 && river3 && elevation < elevation1 && elevation1 < elevation2 && secondMinDistance >= riverWidthPoints && minDistance < riverWidthPoints && signedDistanceFromDiagonal < 2 * signedRiverWidthPoints && secondMinDistance < 2 * riverWidthPoints)
+	{
+		return pow(abs((float)(2 * signedRiverWidthPoints - signedDistanceFromDiagonal) / riverWidthPoints), riverShapePower) * -riverMaxDepth;
+	}
+	// if both closest edges are river and closest tile is lower and second closest tile is higher
+	if (river1 && river2 && elevation > elevation1 && elevation < elevation2 && secondMinDistance < 2 * riverWidthPoints)
+	{
+		if (secondMinDistance == 0) return 0;
+		int signedDistance = riverWidthPoints - secondMinDistance;
+		return pow(abs(1 - (float)abs(signedDistance) / riverWidthPoints), riverShapePower) * -riverMaxDepth;
+	}
+	// crossing point between rivers between this tile and closest tile and closest tile and second closest tile when both are higher and second closest is heigher that the closest
+	if (river1 && !river2 && river3 && elevation < elevation1 && elevation < elevation2 && elevation1 < elevation2 && secondMinDistance < 2 * riverWidthPoints)
+	{
+		if (signedDistanceFromDiagonal == 0) return 0;
+		int signedDistance = riverWidthPoints - signedDistanceFromDiagonal;
+		return pow(abs(1 - (float)abs(signedDistance) / riverWidthPoints), riverShapePower) * -riverMaxDepth;
+	}
+	// crossing point between rivers between this tile and second closest tile and closest tile and second closest tile and closest is heigher that the second closest
+	if (!river1 && river2 && river3 && elevation < elevation1 && elevation < elevation2 && elevation1 > elevation2 && secondMinDistance < 2 * riverWidthPoints)
+	{
+		return 0;
+	}
+	// crossing point between rivers between this tile and closest tile and closest tile and second closest tile when both are higher and closest is heigher that the second closest
+	if (river1 && river3 && elevation < elevation1 && elevation < elevation2 && elevation1 > elevation2 && minDistance < 2 * riverWidthPoints)
+	{
+		if (minDistance == 0) return 0;
+		int signedDistance = riverWidthPoints - minDistance;
+		return pow(abs(1 - (float)abs(signedDistance) / riverWidthPoints), riverShapePower) * -riverMaxDepth;
+	}
+	// crossing point between rivers between this tile and second closest tile and closest tile and second closest tile and second closest is heigher that the closest
+	if (!river1 && river2 && river3 && elevation < elevation1 && elevation < elevation2 && elevation1 < elevation2 && secondMinDistance < 2 * riverWidthPoints)
+	{
+		if (secondMinDistance == 0) return 0;
+		int signedDistance = riverWidthPoints - secondMinDistance;
+		return pow(abs(1 - (float)abs(signedDistance) / riverWidthPoints), riverShapePower) * -riverMaxDepth;
+	}
+	// crossing point between river on closest and second closest tile when higher than closest tile and same height as second closest tile
+	if (river1 && river2 && elevation > elevation1 && elevation == elevation2 && secondMinDistance < riverWidthPoints)
+	{
+		return pow((float)(riverWidthPoints - secondMinDistance) / riverWidthPoints, riverShapePower) * -riverMaxDepth;
+	}
+	// crossing point between rivers between this tile and closest tile and closest tile and second closest tile when both are higher
+	if (river1 && river3 && elevation < elevation1 && elevation < elevation2 && secondMinDistance < riverWidthPoints)
+	{
+		return pow(abs((float)(riverWidthPoints - signedDistanceFromDiagonal) / riverWidthPoints), riverShapePower) * -riverMaxDepth;
+	}
+	// crossing point between rivers between this tile and second closest tile and closest tile and second closest tile if those tile are same height
+	if (!river1 && river2 && river3 && elevation < elevation1 && elevation < elevation2 && signedDistanceFromDiagonal >= signedRiverWidthPoints)
+	{
+		return 0;
+	}
+	if (!river1 && river2 && river3 && elevation < elevation1 && elevation < elevation2 && signedDistanceFromDiagonal < signedRiverWidthPoints && secondMinDistance < 2 * riverWidthPoints && minDistance < riverWidthPoints)
+	{
+		return pow(abs((float)(riverWidthPoints - signedDistanceFromDiagonal) / riverWidthPoints), riverShapePower) * -riverMaxDepth;
+	}
+	// special case when there is no river between this tile and clsoest tile which is higher and there is river between this tile and second closest tile and between second closest tile and closest tile
+	if (!river1 && river2 && river3 && elevation == elevation2 && elevation < elevation1)
+	{
+		return 0;
+	}
+	// river between this tile and closest tile if it has the same elevation, crossing with river between closest tile and second closest tile if it has heigher elevation
+	if (river1 && !river2 && river3 && elevation == elevation1 && elevation < elevation2 && secondMinDistance < riverWidthPoints)
+	{
+		return pow(abs(1 - (float)(riverWidthPoints - signedDistanceFromDiagonal) / riverWidthPoints), riverShapePower) * -riverMaxDepth;
+	}
+	// river between this tile and closest tile if it has the same elevation, crossing with river between this tile and second closest tile if it has heigher elevation
+	if (river1 && river2 && elevation == elevation1 && elevation < elevation2 && minDistance < riverWidthPoints && signedDistanceFromDiagonal > signedRiverWidthPoints)
+	{
+		return pow((float)(riverWidthPoints - minDistance) / riverWidthPoints, riverShapePower) * -riverMaxDepth;
+	}
+	if (river1 && river2 && elevation == elevation1 && elevation < elevation2 && secondMinDistance < 2 * riverWidthPoints && signedDistanceFromDiagonal >= 0)
+	{
+		if (secondMinDistance == 0) return 0;
+		int signedDistance = riverWidthPoints - secondMinDistance;
+		return pow(abs(1 - (float)abs(signedDistance) / riverWidthPoints), riverShapePower) * -riverMaxDepth;
+	}
+	// river between this tile and second closest tile if it has the same elevation
+	if (!river1 && river2 && river3 && elevation == elevation2 && secondMinDistance < riverWidthPoints)
+	{
+		return pow((float)(riverWidthPoints - secondMinDistance) / riverWidthPoints, riverShapePower) * -riverMaxDepth;
+	}
+	// river between this tile and second closest tile if it has heigher elevation
+	if (!river1 && river2 && river3 && elevation < elevation2 && secondMinDistance < 2 * riverWidthPoints && secondMinDistance > 0)
+	{
+		int signedDistance = riverWidthPoints - secondMinDistance;
+		return pow(abs(1 - (float)abs(signedDistance) / riverWidthPoints), riverShapePower) * -riverMaxDepth;
+	}
+	// river between this tile and closest tile if it has the same elevation
+	if (river1 && elevation == elevation1 && minDistance < riverWidthPoints)
+	{
+		return pow((float)(riverWidthPoints - minDistance) / riverWidthPoints, riverShapePower) * -riverMaxDepth;
+	}
+	// river between this tile and closest tile if it has heigher elecation
+	if (river1 && elevation < elevation1 && minDistance < 2 * riverWidthPoints && minDistance > 0)
+	{
+		int signedDistance = riverWidthPoints - minDistance;
+		return pow(abs(1 - (float)abs(signedDistance) / riverWidthPoints), riverShapePower) * -riverMaxDepth;
+	}
+
+	return 0;
+}
+
+float CalculateNoiseReduction1(uint minDistance, uint secondMinDistance, uint elevation, uint elevation1, uint elevation2, uint r, float heightReductionPower, bool isRiverNoise = false)
+{
+	float heightDistanceDecrease = pow(abs(1 - ((float)minDistance / r)), heightReductionPower);
+
+	// noise is reduced only when same hight tile is closest
+	if (elevation1 == elevation && !isRiverNoise)
+	{
+		//if second closest tile is also same height or it is the center of the hex then the reduction is maximum
+		if (elevation2 == elevation || minDistance == r)
+		{
+			return 0;
+		}
+		// else reduction needs to be calculated based on second distance
+		else
+		{
+			return heightDistanceDecrease * pow(abs(1 - ((secondMinDistance - minDistance) / (((float)r - minDistance) / 2))), heightReductionPower);
+		}
+	}
+	return heightDistanceDecrease;
+}
+
+// determine vertex steepness aka. how steep is the slope that a vertex is part of (edges of slopes included)
+uint CalculateVertexSteepness(uint minDistance, uint secondMinDistance, uint elevation, uint elevation1, uint elevation2, uint elevationBorderSizePoints)
+{
+	// same structure as for finding height
+	if (elevation1 > 0)
+	{
+		// if closest and the second closest neighbors are same or higher elevation
+		if (elevation1 >= elevation && elevation2 >= elevation)
+		{
+			return 0;
+		}
+		// if closest neighbor is the same or higher elevation and second closest in lower
+		else if (elevation1 >= elevation && elevation2 > 0)
+		{
+			if (secondMinDistance <= elevationBorderSizePoints) return elevation - elevation2;
+		}
+		// if closest neighbor is the same or higher elevation and second closest doesn't exist
+		else if (elevation1 >= elevation)
+		{
+			if (secondMinDistance <= elevationBorderSizePoints) return elevation;
+		}
+		// if closest neigbor is lower elevation and second closest neighbors exists and is above 0 elevation
+		else if (elevation2 > 0)
+		{
+			if (secondMinDistance <= elevationBorderSizePoints && minDistance <= elevationBorderSizePoints && elevation > elevation2 && elevation1 > elevation2) return elevation - elevation2;
+			if (minDistance <= elevationBorderSizePoints) return elevation - elevation1;
+		}
+		// if closest neigbor has lower elevation and second closest neighbor has 0 elevation or doesn't exist
+		else
+		{
+			if (secondMinDistance <= elevationBorderSizePoints && minDistance <= elevationBorderSizePoints) return elevation;
+			if (minDistance <= elevationBorderSizePoints) return elevation - elevation1;
+		}
+	}
+	else if (minDistance <= elevationBorderSizePoints) return elevation;
+	return 0;
+}
+
+// calculate position of a vertex without taking into account any tile parameters
+float3 CalculateBasePosition(uint x, uint z, float3 startPoint, float xDistance, float zDistance)
+{
+	float postionX = startPoint.x + x * xDistance + z * 0.5 * xDistance;
+	float postionY = 0;
+	float postionZ = startPoint.z + z * zDistance;
+	return float3(postionX, postionY, postionZ);
+}
+
+// calculate how much a vertex should move horizontally to create a cliff effect
+float3 CalculateCliffVector(float3 position, float cliffNoise, uint vertexSteepness, uint minDistance, uint secondMinDistance, uint elevation, uint elevation1, uint elevation2, uint r, uint elevationBorderSizePoints, float cliffNoiseMildingPower, float cliffNoiseValuePercentOnMildEdge)
+{
+	float3 normalizedOutVector = normalize(position);
+	// if cliff is only 1 elevation high the size of the cliff needs to be reduced
+	if (vertexSteepness == 1)
+	{
+		// if neigboring tiles are lower than current tile the cliff reduction is proportional to the distance from the second edge
+		if (elevation > elevation1 && elevation > elevation2)
+		{
+			float cliffReduction = pow(abs(1 - ((secondMinDistance - minDistance) / (((float)r - minDistance) / 2))), cliffNoiseMildingPower) * (1 - cliffNoiseValuePercentOnMildEdge);
+			cliffNoise *= cliffNoiseValuePercentOnMildEdge + cliffReduction;
+		}
+		// otherwise the cliff reduction is constant
+		else
+		{
+			cliffNoise *= cliffNoiseValuePercentOnMildEdge;
+		}
+	}
+	float cliffSize = cliffNoise * ((float)minDistance / elevationBorderSizePoints);
+	return float3(normalizedOutVector.x * cliffSize, 0, normalizedOutVector.z * cliffSize);
+}
+
+void FindClosestEdgePoints(out uint2 point1, out uint2 point2, out uint2 point3, out uint3 pointDistances, uint x, uint z, uint closestEdge, uint secondClosestEdge, uint minDistance, uint secondMinDistance, uint elevationBorderSizePoints, uint elevation, uint elevation1, uint elevation2, uint r)
+{
+	// distances from the closest cliff
+	pointDistances = uint3(minDistance - elevationBorderSizePoints, minDistance - elevationBorderSizePoints, minDistance - elevationBorderSizePoints);
+
+	// if this special case is true, than distances needs to be bigger
+	if (elevation1 >= elevation && elevation2 < elevation)
+	{
+		if (((closestEdge < secondClosestEdge) || (closestEdge == 5 && secondClosestEdge == 0)) && !(closestEdge == 0 && secondClosestEdge == 5))
+		{
+			pointDistances.x = minDistance;
+			pointDistances.z = secondMinDistance - elevationBorderSizePoints;
+			if (pointDistances.z > minDistance) pointDistances.z = minDistance;
+		}
+		else
+		{
+			pointDistances.x = secondMinDistance - elevationBorderSizePoints;
+			if (pointDistances.x > minDistance) pointDistances.x = minDistance;
+			pointDistances.z = minDistance;
+		}
+	}
+
+	if (minDistance == secondMinDistance)
+	{
+		// determine which corner are we in and calculate point coordinates
+		switch (closestEdge + secondClosestEdge)
+		{
+		case 1:
+			point1 = uint2(x - pointDistances.x, z + pointDistances.x);
+			point2 = uint2(x, z + pointDistances.y);
+			point3 = uint2(x + pointDistances.z, z);
+			break;
+		case 3:
+			point1 = uint2(x, z + pointDistances.x);
+			point2 = uint2(x + pointDistances.y, z);
+			point3 = uint2(x + pointDistances.z, z - pointDistances.z);
+			break;
+		case 5:
+			if (closestEdge == 0 || secondClosestEdge == 0)
+			{
+				point1 = uint2(x - pointDistances.x, z);
+				point2 = uint2(x - pointDistances.y, z + pointDistances.y);
+				point3 = uint2(x, z + pointDistances.z);
+			}
+			else
+			{
+				point1 = uint2(x + pointDistances.x, z);
+				point2 = uint2(x + pointDistances.y, z - pointDistances.y);
+				point3 = uint2(x, z - pointDistances.z);
+			}
+			break;
+		case 7:
+			point1 = uint2(x + pointDistances.x, z - pointDistances.x);
+			point2 = uint2(x, z - pointDistances.y);
+			point3 = uint2(x - pointDistances.z, z);
+			break;
+		case 9:
+			point1 = uint2(x, z - pointDistances.x);
+			point2 = uint2(x - pointDistances.y, z);
+			point3 = uint2(x - pointDistances.z, z + pointDistances.z);
+			break;
+		default:
+			point1 = uint2(x, z);
+			point2 = uint2(x, z);
+			point3 = uint2(x, z);
+			break;
+		}
+	}
+	// otherwise there are 2 points of interest
+	else
+	{
+		// determine which edge are we closest to and calculate point coordinates
+		switch (closestEdge)
+		{
+		case 0:
+			point1 = uint2(x - pointDistances.x, z + pointDistances.x);
+			point2 = uint2(x, z + pointDistances.z);
+			break;
+		case 1:
+			point1 = uint2(x, z + pointDistances.x);
+			point2 = uint2(x + pointDistances.z, z);
+			break;
+		case 2:
+			point1 = uint2(x + pointDistances.x, z);
+			point2 = uint2(x + pointDistances.z, z - pointDistances.z);
+			break;
+		case 3:
+			point1 = uint2(x + pointDistances.x, z - pointDistances.x);
+			point2 = uint2(x, z - pointDistances.z);
+			break;
+		case 4:
+			point1 = uint2(x, z - pointDistances.x);
+			point2 = uint2(x - pointDistances.z, z);
+			break;
+		case 5:
+			point1 = uint2(x - pointDistances.x, z);
+			point2 = uint2(x - pointDistances.z, z + pointDistances.z);
+			break;
+		default:
+			point1 = uint2(x, z);
+			point2 = uint2(x, z);
+			break;
+		}
+		point3 = uint2(x, z);
+	}
+}
